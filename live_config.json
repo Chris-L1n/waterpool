@@ -1,0 +1,76 @@
+{
+  "imou": {
+    "base_url": "https://openapi.lechange.cn:443/openapi",
+    "app_id": "lc27338f0bc7ac4ecc",
+    "app_secret": "c7c114e154374829a8b51c259b9982"
+  },
+  "radar": {
+    "channel": 0,
+    "baud": 500,
+    "batch": 2500,
+    "wait_ms": 20,
+    "track_threshold_m": 0.4,
+    "max_missed": 3,
+    "filters": {
+      "x_max_cm": 999999,
+      "y_min_cm": 0,
+      "speed_max_cm_s": 999999,
+      "pv_filter": false
+    },
+    "csv": {
+      "targets": "radar_targets.csv",
+      "nearest": "radar_nearest.csv",
+      "tracks": "radar_tracks.csv"
+    }
+  },
+  "tracking": {
+    "dry_run": false,
+    "speed": 8,
+    "ms_per_degree": 26.4,
+    "deadband_deg": 3.0,
+    "max_step_deg": 12.0,
+    "command_interval_s": 1.2,
+    "handoff_cooldown_s": 5.0,
+    "target_timeout_s": 2.0,
+    "home_on_start": false,
+    "home_on_exit": false,
+    "home_limit_degrees": 360.0,
+    "home_degrees": 180.0,
+    "home_settle_s": 0.5
+  },
+  "cameras": [
+    {
+      "key": "A",
+      "device_id": "D35C8CCPCGA7C1E",
+      "channel_id": "0",
+      "enabled": true,
+      "position_m": [0.0, 0.0],
+      "heading_deg": 0.0,
+      "initial_pan_deg": 0.0,
+      "min_range_m": 0.0,
+      "max_range_m": 4.0
+    },
+    {
+      "key": "B",
+      "device_id": "D35C8CCPCGC5BC1",
+      "channel_id": "0",
+      "enabled": true,
+      "position_m": [5.0, 0.0],
+      "heading_deg": 0.0,
+      "initial_pan_deg": 0.0,
+      "min_range_m": 0.0,
+      "max_range_m": 4.0
+    },
+    {
+      "key": "C",
+      "device_id": "D35C8CCPCG2DF8B",
+      "channel_id": "0",
+      "enabled": true,
+      "position_m": [10.0, 0.0],
+      "heading_deg": 0.0,
+      "initial_pan_deg": 0.0,
+      "min_range_m": 0.0,
+      "max_range_m": 4.0
+    }
+  ]
+}

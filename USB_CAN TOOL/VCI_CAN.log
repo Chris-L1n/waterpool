@@ -1,0 +1,23 @@
+
+2026-06-22 15:46:35.189  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.192  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:46:35.219  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.219  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:46:35.249  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.249  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:46:35.279  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.279  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:46:35.309  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.310  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:46:35.339  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.340  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:46:35.369  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.370  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:46:35.399  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.400  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:46:35.429  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.430  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:46:35.460  VCI_Receive:input=(4,0,0,*p,2500,20),return=-1
+2026-06-22 15:46:35.460  VCI_Receive:input=(4,0,1,*p,2500,20),return=-1
+2026-06-22 15:56:53.778  VCI_ResetCAN:input=(4,0,0),return=0
+2026-06-22 15:56:53.779  VCI_ResetCAN:input=(4,0,1),return=0
