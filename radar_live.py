@@ -1,6 +1,12 @@
 import ctypes as ct
 import time
 
+"""
+封装radar_track_parser_v4.py
+提供给live_tracking.py 调用
+
+"""
+from anomaly_detector import AnomalyDetector
 from radar_track_parser_v4 import (
     CsvWriters,
     RadarReassembler,
@@ -19,10 +25,17 @@ from radar_track_parser_v4 import (
 class RadarLiveStream:
     """Reusable CAN receive loop built from radar_track_parser_v4.py."""
 
-    def __init__(self, config, on_nearest):
+    def __init__(self, config, on_nearest, anomaly_config=None, on_anomaly=None):
         self.config = config
         self.on_nearest = on_nearest
+        self.on_anomaly = on_anomaly
         self.running = False
+
+        # 异常检测器（由 live_tracking.py 传入配置和回调）
+        if anomaly_config and anomaly_config.get("anomaly_detection", {}).get("enabled"):
+            self.anomaly_detector = AnomalyDetector(anomaly_config, on_anomaly=on_anomaly)
+        else:
+            self.anomaly_detector = None
 
     def stop(self):
         self.running = False
@@ -69,6 +82,8 @@ class RadarLiveStream:
             )
             writers.write_targets(packet_no, targets)
             writers.write_nearest(packet_no, nearest)
+            if self.anomaly_detector is not None:
+                self.anomaly_detector.feed(targets)
             if nearest is not None:
                 self.on_nearest(nearest, targets)
 
@@ -104,3 +119,6 @@ class RadarLiveStream:
             if opened:
                 close_can(dll)
             writers.close()
+            if self.anomaly_detector is not None:
+                self.anomaly_detector.close()
+                print(f"异常检测结束: {self.anomaly_detector.summary()}")

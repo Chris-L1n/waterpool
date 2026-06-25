@@ -4,13 +4,26 @@
 CANalyst-II / ControlCAN.dll 雷达轨迹解析正式版 v4
 
 功能：
+
+ 雷达输出的数据类型:
+ X_cm	横向偏移（雷达右侧为正）	-32768 ~ +32767 cm
+ Y_cm	纵向距离（雷达前方为正）	0 ~ 65535 cm
+ speed_cm_s	径向速度（远离为正）	-32768 ~ +32767 cm/s
+ PV	信号质量/信噪比	0 ~ 65535
+
+ 以及计算的:
+ track_id
+ distance_m   --目标距雷达的欧氏距离（勾股定理）
+ match_distance_m   --当前帧目标与匹配轨迹上一帧位置的欧氏距离
+
+-----------------------------------------------------------
   1) 用 VCI_CAN_OBJ 数组方式批量接收 CAN 帧（已验证能收到 0x421）
   2) 按雷达 CAN 分包协议重组成完整雷达包
   3) 解析命令码 130 的目标输出包
   4) 实时打印目标 X/Y/速度/PV，并按过滤条件选最近目标
   5) 保存 CSV：radar_targets.csv、radar_nearest.csv、radar_tracks.csv
   6) 使用最近邻方法为目标分配稳定 track_id
-
+---------------------------------------------------------------
 运行：
   py -3.11-32 radar_track_parser.py --raw
   py -3.11-32 radar_track_parser.py --channel 0 --baud 500
@@ -87,7 +100,7 @@ TIMING = {
 
 CAN_RADAR_RX_ID = 0x421       # 雷达 -> 主机
 CAN_RADAR_TX_ID = 0x110       # 主机 -> 雷达
-RADAR_CMD_TARGET_OUTPUT = 130 # 0x82
+RADAR_CMD_TARGET_OUTPUT = 130 # 0x82 目标输出包
 
 CAN_SEG_FIRST = 0
 CAN_SEG_MID = 1
@@ -200,7 +213,7 @@ class RadarReassembler:
         self.verbose_reset = verbose_reset
         self.buf = bytearray()
         self.expected_seg = -1
-        self.receiving = False
+        self.receiving = False  # 是否正在组包
         self.reset_count = 0
 
     def reset(self, reason=""):
@@ -325,6 +338,10 @@ def parse_target_packet(packet: bytes):
     return targets, None
 
 
+# ============================================================
+# 简单目标跟踪：最近邻匹配 + 短暂丢失保留
+# ============================================================
+
 def choose_nearest(targets, x_max_cm=500, y_min_cm=500, speed_max_cm_s=0,
                    enable_pv_filter=True, pv_near_y_max_cm=1000, pv_min_near=40,
                    pv_mid_y_max_cm=2000, pv_min_mid=30):
@@ -354,6 +371,7 @@ def choose_nearest(targets, x_max_cm=500, y_min_cm=500, speed_max_cm_s=0,
 
 class SimpleTracker:
     """
+    给没有ID的雷达目标分配跨帧稳定的
     给每个目标分配程序自己的 track_id。
 
     说明：

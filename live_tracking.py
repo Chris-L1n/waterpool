@@ -7,6 +7,10 @@ from pathlib import Path
 from imou_ptz import ImouAPIError, ImouPTZClient
 from radar_live import RadarLiveStream
 
+"""
+连接雷达数据和摄像头控制
+"""
+
 
 def normalize_angle(angle):
     return (float(angle) + 180.0) % 360.0 - 180.0
@@ -92,6 +96,13 @@ class LiveTrackingCoordinator:
     def submit(self, nearest, targets):
         with self._latest_lock:
             self._latest = (time.time(), dict(nearest), [dict(item) for item in targets])
+
+    def on_anomaly(self, event):
+        """异常检测回调 — 收到报警时打印，后续可扩展 PTZ 转向对应预置位"""
+        print(f"[ANOMALY CALLBACK] {event['event_type']} {event['event_label']} "
+              f"tracks={event['track_ids']}")
+        # TODO: 根据 event_type 调用对应预置位
+        # 例如: self.client.move_to_preset(key, preset_name)
 
     def _run_worker(self):
         while self._running:
@@ -190,11 +201,24 @@ def run_live_tracking(config_path):
         path = Path(value)
         if not path.is_absolute():
             csv_config[key] = str(config_path.parent / path)
+
+    # 异常检测 CSV 路径转绝对路径
+    ad_csv = config.get("anomaly_detection", {}).get("csv", "")
+    if ad_csv and not Path(ad_csv).is_absolute():
+        config["anomaly_detection"]["csv"] = str(config_path.parent / ad_csv)
+
     coordinator = LiveTrackingCoordinator(config)
-    radar = RadarLiveStream(config["radar"], coordinator.submit)
+    radar = RadarLiveStream(
+        config["radar"],
+        on_nearest=coordinator.submit,
+        anomaly_config=config,
+        on_anomaly=coordinator.on_anomaly,
+    )
     coordinator.start()
     print(f"Live configuration: {config_path}")
     print(f"PTZ dry_run={coordinator.dry_run}")
+    anomaly_enabled = config.get("anomaly_detection", {}).get("enabled", False)
+    print(f"异常检测: {'启用' if anomaly_enabled else '关闭'}")
     try:
         radar.run()
     except KeyboardInterrupt:

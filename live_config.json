@@ -38,6 +38,57 @@
     "home_degrees": 180.0,
     "home_settle_s": 0.5
   },
+
+  "zones": {
+    "_comment": "水池坐标系：雷达在原点(0,0)，+Y为雷达正前方，+X为雷达右侧。水池约2m宽×4m长。",
+    "normal_channel": {
+      "_comment": "正常航道：水池中央的纵向条带，船只正常航行应在此区域内",
+      "points": [[-0.3, 0.0], [0.3, 0.0], [0.3, 4.0], [-0.3, 4.0]]
+    },
+    "rendezvous_zone": {
+      "_comment": "船-船搭靠区：水池右侧中段，两船在此区域近距离并靠视为异常",
+      "points": [[0.3, 2.0], [1.0, 2.0], [1.0, 3.0], [0.3, 3.0]]
+    },
+    "fast_passage_zone": {
+      "_comment": "快速通过区：水池中段横向全宽，船只在此区域突然加速视为异常",
+      "points": [[-1.0, 1.5], [1.0, 1.5], [1.0, 2.5], [-1.0, 2.5]]
+    },
+    "unauthorized_docking_zone": {
+      "_comment": "非正规靠岸区：水池左侧远端，非正规停靠点，船只在此停留视为异常",
+      "points": [[-1.0, 3.0], [-0.3, 3.0], [-0.3, 4.0], [-1.0, 4.0]]
+    },
+    "authorized_docking_point": {
+      "_comment": "正规停靠点：水池远端中央，此处停靠不触发报警",
+      "position": [0.0, 3.8],
+      "radius_m": 0.3
+    }
+  },
+
+  "anomaly_detection": {
+    "enabled": true,
+    "csv": "anomaly_events.csv",
+    "sc_cooldown_s": 60,
+    "ks_cooldown_s": 30,
+    "ka_cooldown_s": 60,
+    "ship_rendezvous": {
+      "_comment": "船-船搭靠检测 (SC)：两船距离<0.5m且持续≥15秒触发",
+      "distance_threshold_m": 0.5,
+      "duration_threshold_s": 15.0
+    },
+    "fast_passage": {
+      "_comment": "快速通过检测 (KS)：速度>1.5m/s且突增>2倍或加速度>0.3m/s²",
+      "speed_threshold_m_s": 1.5,
+      "speed_ratio_threshold": 2.0,
+      "acceleration_threshold_m_s2": 0.3
+    },
+    "shore_docking": {
+      "_comment": "船靠岸送人上岸检测 (KA)：偏航>0.3m→入禁区→减速<0.2m/s→停留≥10秒",
+      "deviation_threshold_m": 0.3,
+      "speed_threshold_m_s": 0.2,
+      "duration_threshold_s": 10.0
+    }
+  },
+
   "cameras": [
     {
       "key": "A",
@@ -48,7 +99,7 @@
       "heading_deg": 0.0,
       "initial_pan_deg": 0.0,
       "min_range_m": 0.0,
-      "max_range_m": 4.0
+      "max_range_m": 1.5
     },
     {
       "key": "B",
@@ -59,7 +110,7 @@
       "heading_deg": 0.0,
       "initial_pan_deg": 0.0,
       "min_range_m": 0.0,
-      "max_range_m": 4.0
+      "max_range_m": 1.5
     },
     {
       "key": "C",
@@ -70,7 +121,7 @@
       "heading_deg": 0.0,
       "initial_pan_deg": 0.0,
       "min_range_m": 0.0,
-      "max_range_m": 4.0
+      "max_range_m": 1.5
     }
   ]
 }
