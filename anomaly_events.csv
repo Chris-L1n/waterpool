@@ -1,0 +1,4 @@
+﻿event_time,event_type,event_label,track_ids,duration_s,details
+2026-06-25T16:47:40.731,SC,船-船搭靠,"1,2",15.0,"{""distance_m"": 0.112, ""relative_speed_m_s"": 0.0, ""approach_distance_drop_m"": 1.491, ""track_a"": {""x"": 0.5, ""y"": 2.4, ""speed"": 0.05}, ""track_b"": {""x"": 0.6, ""y"": 2.45, ""speed"": 0.05}}"
+2026-06-25T16:47:40.735,KS,快速通过,3,2.0,"{""current_speed_m_s"": 2.6, ""average_speed_m_s"": 0.441, ""speed_ratio"": 5.89, ""acceleration_m_s2"": 0.0, ""trigger_reason"": ""speed_surge"", ""speed_duration_s"": 2.0, ""position"": {""x"": 0.0, ""y"": 2.0}}"
+2026-06-25T16:47:40.743,KA,船靠岸送人上岸,4,10.0,"{""path"": ""deviation_stop"", ""position"": {""x"": -0.7, ""y"": 3.75}, ""speed_m_s"": 0.05, ""deviation_m"": 0.7}"

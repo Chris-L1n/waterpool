@@ -1,4 +1,5 @@
 import ctypes as ct
+import socket
 import time
 
 """
@@ -62,6 +63,16 @@ class RadarLiveStream:
         )
         packet_no = 0
 
+        # VOFA+ UDP 转发（开关由配置控制，默认关闭）
+        vofa_cfg = cfg.get("vofa", {})
+        vofa_enabled = bool(vofa_cfg.get("enabled", False))
+        vofa_sock = None
+        if vofa_enabled:
+            vofa_host = vofa_cfg.get("host", "127.0.0.1")
+            vofa_port = int(vofa_cfg.get("port", 1347))
+            vofa_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            print(f"VOFA+ forwarding: {vofa_host}:{vofa_port}")
+
         def on_packet(packet, timestamp):
             nonlocal packet_no
             targets, error = parse_target_packet(packet)
@@ -86,6 +97,16 @@ class RadarLiveStream:
                 self.anomaly_detector.feed(targets)
             if nearest is not None:
                 self.on_nearest(nearest, targets)
+
+            # VOFA+ UDP 转发：格式为 "x,y,speed,pv\n"（FireWater 协议）
+            if vofa_sock is not None:
+                try:
+                    lines = []
+                    for t in targets:
+                        lines.append(f"{t['x_m']:.3f},{t['y_m']:.3f},{t['speed_m_s']:.3f},{t['pv']}\n")
+                    vofa_sock.sendto("".join(lines).encode(), (vofa_host, vofa_port))
+                except Exception:
+                    pass
 
         reassembler = RadarReassembler(on_packet)
         array_type = VCI_CAN_OBJ * batch

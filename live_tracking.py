@@ -193,19 +193,30 @@ def load_live_config(path):
         return json.load(file)
 
 
+def _make_output_dir(base_dir, ts):
+    """创建带时间戳的输出目录：csv文件/20260626_143025/"""
+    out = Path(base_dir) / "csv文件" / ts
+    out.mkdir(parents=True, exist_ok=True)
+    return out
+
+
 def run_live_tracking(config_path):
     config_path = Path(config_path).resolve()
     config = load_live_config(config_path)
+
+    # 生成本次运行的时间戳，创建输出文件夹
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = _make_output_dir(config_path.parent, ts)
+
+    # 雷达 CSV 路径：csv文件/{ts}/radar_targets.csv
     csv_config = config.get("radar", {}).get("csv", {})
     for key, value in list(csv_config.items()):
-        path = Path(value)
-        if not path.is_absolute():
-            csv_config[key] = str(config_path.parent / path)
+        csv_config[key] = str(out_dir / Path(value).name)
 
-    # 异常检测 CSV 路径转绝对路径
+    # 异常检测 CSV 路径
     ad_csv = config.get("anomaly_detection", {}).get("csv", "")
-    if ad_csv and not Path(ad_csv).is_absolute():
-        config["anomaly_detection"]["csv"] = str(config_path.parent / ad_csv)
+    config["anomaly_detection"]["csv"] = str(out_dir / Path(ad_csv).name)
 
     coordinator = LiveTrackingCoordinator(config)
     radar = RadarLiveStream(
@@ -219,6 +230,7 @@ def run_live_tracking(config_path):
     print(f"PTZ dry_run={coordinator.dry_run}")
     anomaly_enabled = config.get("anomaly_detection", {}).get("enabled", False)
     print(f"异常检测: {'启用' if anomaly_enabled else '关闭'}")
+    print(f"输出目录: {out_dir}")
     try:
         radar.run()
     except KeyboardInterrupt:

@@ -21,6 +21,15 @@
       "targets": "radar_targets.csv",
       "nearest": "radar_nearest.csv",
       "tracks": "radar_tracks.csv"
+    },
+    "vofa": {
+      "_作用": "主程序运行的同时，通过UDP把每帧目标数据转发给VOFA+，实时查看雷达点云",
+      "enabled": true,
+      "_enabled": "true=启用转发，false=关闭",
+      "host": "127.0.0.1",
+      "_host": "VOFA+运行的电脑IP（本机用127.0.0.1）",
+      "port": 1347,
+      "_port": "VOFA+ FireWater协议的UDP端口，默认1347"
     }
   },
   "tracking": {
@@ -40,25 +49,20 @@
   },
 
   "zones": {
-    "_comment": "水池坐标系：雷达在原点(0,0)，+Y为雷达正前方，+X为雷达右侧。水池约2m宽×4m长。",
+    "_坐标系": "雷达在原点(0,0)，+Y为雷达正前方，+X为雷达右侧。以下三个zone全部只为KA（船靠岸）检测服务。SC和KS不读zone，全海域检测。",
     "normal_channel": {
-      "_comment": "正常航道：水池中央的纵向条带，船只正常航行应在此区域内",
+      "_作用": "KA路径A判断'偏航'——船的X坐标超出此矩形即算偏离正常航道",
+      "_设置方法": "测量水池中央航道的左右边界。points格式：[[左边界X, 近端Y], [右边界X, 近端Y], [右边界X, 远端Y], [左边界X, 远端Y]]",
       "points": [[-0.3, 0.0], [0.3, 0.0], [0.3, 4.0], [-0.3, 4.0]]
     },
-    "rendezvous_zone": {
-      "_comment": "船-船搭靠区：水池右侧中段，两船在此区域近距离并靠视为异常",
-      "points": [[0.3, 2.0], [1.0, 2.0], [1.0, 3.0], [0.3, 3.0]]
-    },
-    "fast_passage_zone": {
-      "_comment": "快速通过区：水池中段横向全宽，船只在此区域突然加速视为异常",
-      "points": [[-1.0, 1.5], [1.0, 1.5], [1.0, 2.5], [-1.0, 2.5]]
-    },
     "unauthorized_docking_zone": {
-      "_comment": "非正规靠岸区：水池左侧远端，非正规停靠点，船只在此停留视为异常",
+      "_作用": "KA路径B用此多边形的边界线计算'船距岸边多远'",
+      "_设置方法": "画一个靠岸边的矩形，多边形顶点按顺时针或逆时针排列。代码只用到边界线算距离，不需要精确包含靠岸点",
       "points": [[-1.0, 3.0], [-0.3, 3.0], [-0.3, 4.0], [-1.0, 4.0]]
     },
     "authorized_docking_point": {
-      "_comment": "正规停靠点：水池远端中央，此处停靠不触发报警",
+      "_作用": "KA检测时船在此范围内不报警（正规停靠点豁免）",
+      "_设置方法": "position = 雷达坐标系下正规停靠点的[X, Y]坐标（米）。radius_m = 豁免半径（米），船离此点小于此距离不报警",
       "position": [0.0, 3.8],
       "radius_m": 0.3
     }
@@ -66,26 +70,66 @@
 
   "anomaly_detection": {
     "enabled": true,
+    "_enabled": "true=启用异常检测，false=关闭",
     "csv": "anomaly_events.csv",
-    "sc_cooldown_s": 60,
-    "ks_cooldown_s": 30,
-    "ka_cooldown_s": 60,
+    "_csv": "报警输出文件名，每次启动自动加时间戳",
+
+    "cooldowns": {
+      "_作用": "同一目标触发报警后，冷却期内不再重复报同一类型",
+      "sc_s": 60,
+      "_sc_s": "SC搭靠冷却(秒)：同一个pair报警后多久不再重复报",
+      "ks_s": 30,
+      "_ks_s": "KS快速通过冷却(秒)：同一个目标报警后多久不再重复报",
+      "ka_s": 60,
+      "_ka_s": "KA靠岸冷却(秒)：同一个目标报警后多久不再重复报"
+    },
+
     "ship_rendezvous": {
-      "_comment": "船-船搭靠检测 (SC)：两船距离<0.5m且持续≥15秒触发",
+      "_作用": "SC船-船搭靠：两船从远处接近→贴在一起→保持15秒→报警。全海域检测，不限定区域。",
       "distance_threshold_m": 0.5,
-      "duration_threshold_s": 15.0
+      "_distance_threshold_m": "两船距离小于此值(米)才算'贴在一起'。调大→更容易触发/调小→更严格",
+      "duration_threshold_s": 15.0,
+      "_duration_threshold_s": "贴在一起持续多少秒才报警。实验方案要求≥15秒",
+      "relative_speed_threshold_m_s": 0.3,
+      "_relative_speed_threshold_m_s": "两船速度差上限(m/s)。小于此值说明同步移动(真并靠)，大于此值说明擦肩而过",
+      "approach_distance_threshold_m": 2.0,
+      "_approach_distance_threshold_m": "两船距离小于此值(米)时开始记录'接近过程'，追踪距离下降量",
+      "approach_window_s": 10.0,
+      "_approach_window_s": "接近过程追踪窗口(秒)，超过此时间未进入并靠阶段则重置(目前版本未使用此参数)",
+      "min_distance_drop_m": 0.5,
+      "_min_distance_drop_m": "从开始接近到贴在一起，距离至少下降多少米。确认是'主动靠近'而非恰好经过"
     },
+
     "fast_passage": {
-      "_comment": "快速通过检测 (KS)：速度>1.5m/s且突增>2倍或加速度>0.3m/s²",
+      "_作用": "KS快速通过：速度突然明显高于正常巡航速度。全海域检测，不限定区域。",
       "speed_threshold_m_s": 1.5,
+      "_speed_threshold_m_s": "绝对速度阈值(m/s)。超过此值才算'快速'。需根据实验船的正常巡航速度来设",
       "speed_ratio_threshold": 2.0,
-      "acceleration_threshold_m_s2": 0.3
+      "_speed_ratio_threshold": "速度突增倍率。当前速度÷历史平均速度≥此值算突增",
+      "acceleration_threshold_m_s2": 0.3,
+      "_acceleration_threshold_m_s2": "加速度阈值(m/s²)。超过此值算异常加速",
+      "min_duration_s": 2.0,
+      "_min_duration_s": "超速状态至少持续多少秒才报警。防止雷达瞬时毛刺误报"
     },
+
     "shore_docking": {
-      "_comment": "船靠岸送人上岸检测 (KA)：偏航>0.3m→入禁区→减速<0.2m/s→停留≥10秒",
+      "_作用": "KA船靠岸送人上岸：两条路径任一触发即报警。路径A=偏航+减速停留。路径B=快速接近岸边+到达后低速停留。",
       "deviation_threshold_m": 0.3,
+      "_deviation_threshold_m": "路径A：X坐标偏离航道中心线超过此值(米)算'偏航'",
       "speed_threshold_m_s": 0.2,
-      "duration_threshold_s": 10.0
+      "_speed_threshold_m_s": "路径A+B：速度低于此值(m/s)算'停止/低速'",
+      "duration_threshold_s": 10.0,
+      "_duration_threshold_s": "路径A+B：停止/低速状态持续多少秒才报警。实验方案要求≥10秒",
+      "shore_arrival_distance_m": 0.5,
+      "_shore_arrival_distance_m": "路径B：距岸边小于此值(米)算'到达岸边'",
+      "shore_approach_window_s": 20.0,
+      "_shore_approach_window_s": "路径B：到达岸边后回溯多少秒的运动数据来判断'是否快速接近'",
+      "shore_fast_approach_mps": 0.3,
+      "_shore_fast_approach_mps": "路径B：接近阶段平均速度超过此值(m/s)算'快速接近'",
+      "shore_min_distance_drop_m": 0.3,
+      "_shore_min_distance_drop_m": "路径B：接近阶段距岸边距离至少下降多少米，确认是'冲向岸边'",
+      "shore_slow_after_arrival_mps": 0.2,
+      "_shore_slow_after_arrival_mps": "路径B：到达岸边后速度低于此值(m/s)算'停下来了'"
     }
   },
 
