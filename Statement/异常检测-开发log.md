@@ -13,6 +13,15 @@
 - 目标跟踪，最近邻匹配分配 track_id（SimpleTracker, 第355-433行）
 - CSV 写入，每次启动输出到 `csv文件/{时间戳}/` 文件夹（CsvWriters, 第439-505行）
 
+### 船目标滤波（BoatTargetSelector）★ 新增
+
+`boat_target_filter.py`
+
+- 可选过滤条件：PV、速度、位置范围、匹配距离（默认全 null，不过滤）
+- 目标稳定性追踪（track_hits 计数 + 锁定机制）
+- 评分选出最稳定的目标给摄像头
+- `_passes_filters()` 方法：异常检测前先过滤噪声（`radar_live.py` 第 88-91 行）
+
 ### VOFA+ 上位机实时可视化
 
 `radar_live.py` 第64-78行（初始化UDP socket）+ 第97-106行（每帧发送数据）
@@ -63,18 +72,24 @@ py anomaly_detector.py --csv radar_targets.csv
 
 ----------------------------------------------------------------------------
 
+## 已完成
+
+### 摄像头由异常触发（不是持续跟踪）✅
+
+`radar_live.py` 第 88-107 行。异常检测触发报警后，BoatTargetSelector 选出最稳定的目标，再驱动摄像头。平时摄像头不动作。`choose_nearest` 已替换为 `BoatTargetSelector`。
+
+### 杂波过滤 ✅
+
+`BoatTargetSelector._passes_filters()`（`boat_target_filter.py`）前置过滤异常检测的输入。可选 PV/速度/位置/匹配距离四项，默认全 null（不过滤）。等实验采集数据后确定阈值。
+
+---
+
 ## 未实现
-
-### 摄像头由异常触发（不是持续跟踪）
-
-目前摄像头是 `choose_nearest` → 每帧跟踪最近目标（`live_tracking.py` 第146-188行）。
-
-项目目标：异常检测触发报警后才驱动摄像头转向对应预置位，平时摄像头停在全局观察位不动。**尚未实现。**
-
-### 杂波过滤
-
-雷达密闭房间内杂波多（墙壁/水面反射），当前未使用 PV 值做前置过滤。如果实验时误报多，第一件事就是在 `feed()` 入口加 PV 阈值过滤。
 
 ### 阈值未经水池实验验证
 
 `anomaly_detection` 里的所有阈值（0.5m、15s、1.5m/s 等）是初始猜测值，需要用真实水池数据调参。
+
+### PV 阈值未确定
+
+`boat_filter` 的 `min_pv` 等值需要实验数据来确定。

@@ -2,6 +2,9 @@ git log --oneline
 
 9f87e94 (HEAD -> main) start to 异常检测算法
 4766a90 v1
+xxxxxxxxxxxx
+
+
 
 -----------------------------------
 
@@ -9,3 +12,6 @@ v1：为原版，
 
 
 start to 异常检测算法： 开始写检测算法之前
+
+
+v3 

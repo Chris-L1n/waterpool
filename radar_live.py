@@ -1,5 +1,6 @@
 import ctypes as ct
 import socket
+import struct
 import time
 
 """
@@ -8,13 +9,13 @@ import time
 
 """
 from anomaly_detector import AnomalyDetector
+from boat_target_filter import BoatTargetSelector
 from radar_track_parser_v4 import (
     CsvWriters,
     RadarReassembler,
     SimpleTracker,
     VCI_CAN_OBJ,
     VCI_USBCAN2,
-    choose_nearest,
     close_can,
     load_dll,
     open_can,
@@ -47,7 +48,6 @@ class RadarLiveStream:
         baud = int(cfg.get("baud", 500))
         batch = int(cfg.get("batch", 2500))
         wait_ms = int(cfg.get("wait_ms", 20))
-        filters = cfg.get("filters", {})
         csv_cfg = cfg.get("csv", {})
 
         dll = load_dll()
@@ -55,6 +55,9 @@ class RadarLiveStream:
         tracker = SimpleTracker(
             match_threshold_m=float(cfg.get("track_threshold_m", 0.4)),
             max_missed=int(cfg.get("max_missed", 3)),
+        )
+        boat_selector = BoatTargetSelector(
+            cfg.get("boat_filter", {}),
         )
         writers = CsvWriters(
             csv_cfg.get("targets", "radar_targets.csv"),
@@ -67,11 +70,12 @@ class RadarLiveStream:
         vofa_cfg = cfg.get("vofa", {})
         vofa_enabled = bool(vofa_cfg.get("enabled", False))
         vofa_sock = None
+        vofa_protocol = vofa_cfg.get("protocol", "justfloat")
         if vofa_enabled:
             vofa_host = vofa_cfg.get("host", "127.0.0.1")
             vofa_port = int(vofa_cfg.get("port", 1347))
             vofa_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            print(f"VOFA+ forwarding: {vofa_host}:{vofa_port}")
+            print(f"VOFA+ forwarding: {vofa_protocol} -> {vofa_host}:{vofa_port}")
 
         def on_packet(packet, timestamp):
             nonlocal packet_no
@@ -80,31 +84,42 @@ class RadarLiveStream:
                 return
             packet_no += 1
             targets = tracker.update(targets, packet_no)
-            nearest = choose_nearest(
-                targets,
-                x_max_cm=int(filters.get("x_max_cm", 999999)),
-                y_min_cm=int(filters.get("y_min_cm", 0)),
-                speed_max_cm_s=int(filters.get("speed_max_cm_s", 999999)),
-                enable_pv_filter=bool(filters.get("pv_filter", False)),
-                pv_near_y_max_cm=int(filters.get("pv_near_y_max_cm", 1000)),
-                pv_min_near=int(filters.get("pv_min_near", 40)),
-                pv_mid_y_max_cm=int(filters.get("pv_mid_y_max_cm", 2000)),
-                pv_min_mid=int(filters.get("pv_min_mid", 30)),
-            )
-            writers.write_targets(packet_no, targets)
-            writers.write_nearest(packet_no, nearest)
-            if self.anomaly_detector is not None:
-                self.anomaly_detector.feed(targets)
-            if nearest is not None:
-                self.on_nearest(nearest, targets)
 
-            # VOFA+ UDP 转发：格式为 "x,y,speed,pv\n"（FireWater 协议）
+            # ① BoatTargetSelector：过滤噪声，选出可能是船的目标
+            boat_targets = [t for t in targets if boat_selector._passes_filters(t)]
+            # 如果没有通过过滤的，保留全部（避免 _passes_filters 未配置时丢失所有目标）
+            if not boat_targets:
+                boat_targets = targets
+
+            # ② 异常检测：对过滤后的目标做 SC/KS/KA
+            if self.anomaly_detector is not None:
+                prev_events = self.anomaly_detector.event_count
+                self.anomaly_detector.feed(boat_targets)
+                anomaly_triggered = self.anomaly_detector.event_count > prev_events
+            else:
+                anomaly_triggered = False
+
+            # ③ 选摄像头目标（用于雷达nearest CSV记录和摄像头指令）
+            nearest = boat_selector.select(targets, packet_no)
+
+            writers.write_targets(packet_no, targets)
+            if anomaly_triggered and nearest is not None:
+                writers.write_nearest(packet_no, nearest)
+                self.on_nearest(nearest, boat_targets)
+            else:
+                writers.write_nearest(packet_no, None)
+
+            # VOFA+ UDP 转发：只发过滤后的目标（看到的才是算法认为的"船"）
             if vofa_sock is not None:
                 try:
-                    lines = []
-                    for t in targets:
-                        lines.append(f"{t['x_m']:.3f},{t['y_m']:.3f},{t['speed_m_s']:.3f},{t['pv']}\n")
-                    vofa_sock.sendto("".join(lines).encode(), (vofa_host, vofa_port))
+                    for t in boat_targets:
+                        buf = struct.pack('<ffff',
+                            float(t['x_m']),
+                            float(t['y_m']),
+                            float(t['speed_m_s']),
+                            float(t.get('pv', 0)))
+                        buf += b'\x00\x00\x80\x7F'
+                        vofa_sock.sendto(buf, (vofa_host, vofa_port))
                 except Exception:
                     pass
 

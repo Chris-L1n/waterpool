@@ -12,10 +12,37 @@
     "track_threshold_m": 0.4,
     "max_missed": 3,
     "filters": {
+      "_comment": "旧版 choose_nearest 的过滤参数，已由 boat_filter 替代，保留不影响运行",
       "x_max_cm": 999999,
       "y_min_cm": 0,
       "speed_max_cm_s": 999999,
       "pv_filter": false
+    },
+    "boat_filter": {
+      "_作用": "BoatTargetSelector：从所有目标中选出最可能是船的那一个给摄像头跟踪",
+      "_说明": "值为 null 或不填表示不启用该过滤条件",
+      "x_min_cm": null,
+      "_x_min_cm": "水池X下限(cm)。雷达在原点，水池宽2m，左边界约-100",
+      "x_max_cm": null,
+      "_x_max_cm": "水池X上限(cm)，右边界约100",
+      "y_min_cm": 0,
+      "_y_min_cm": "水池Y下限(cm)，雷达前方≥0",
+      "y_max_cm": null,
+      "_y_max_cm": "水池Y上限(cm)，远端约400",
+      "max_abs_speed_cm_s": null,
+      "_max_abs_speed_cm_s": "速度上限(cm/s)，超过此值的目标排除",
+      "min_pv": null,
+      "_min_pv": "最小PV值(信号质量)，低于此值的噪声排除。需实验后确定",
+      "max_match_distance_m": null,
+      "_max_match_distance_m": "最大匹配距离(m)，新出现的点匹配距离大可能是噪声",
+      "min_track_hits": 3,
+      "_min_track_hits": "目标至少被连续检测到多少帧才被认为是'稳定目标'",
+      "lock_track": true,
+      "_lock_track": "true=锁定后不轻易切换目标，false=每帧重新评分选最佳",
+      "lock_stale_packets": 8,
+      "_lock_stale_packets": "锁定目标消失多少帧后放弃，重新选新目标",
+      "allow_unconfirmed": false,
+      "_allow_unconfirmed": "true=允许选未达到min_track_hits的目标(噪声多时关闭)"
     },
     "csv": {
       "targets": "radar_targets.csv",
@@ -29,7 +56,9 @@
       "host": "127.0.0.1",
       "_host": "VOFA+运行的电脑IP（本机用127.0.0.1）",
       "port": 1347,
-      "_port": "VOFA+ FireWater协议的UDP端口，默认1347"
+      "_port": "UDP端口，VOFA+中JustFloat协议默认1347",
+      "protocol": "justfloat",
+      "_protocol": "justfloat=二进制float32小端序（推荐，支持XY散点图）"
     }
   },
   "tracking": {
