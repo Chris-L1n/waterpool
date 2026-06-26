@@ -1,3 +1,6 @@
+import math
+
+
 class BoatTargetSelector:
     """Select one stable boat-like radar target before camera scheduling."""
 
@@ -6,6 +9,7 @@ class BoatTargetSelector:
         self.track_hits = {}
         self.last_seen_packet = {}
         self.locked_track_id = None
+        self.first_position = {}
 
         self.x_min_cm = self._optional_float("x_min_cm")
         self.x_max_cm = self._optional_float("x_max_cm")
@@ -14,6 +18,7 @@ class BoatTargetSelector:
         self.max_abs_speed_cm_s = self._optional_float("max_abs_speed_cm_s")
         self.min_pv = self._optional_float("min_pv")
         self.max_match_distance_m = self._optional_float("max_match_distance_m")
+        self.min_total_displacement_m = self._optional_float("min_total_displacement_m")
 
         self.min_track_hits = int(self.config.get("min_track_hits", 3))
         self.lock_track = bool(self.config.get("lock_track", True))
@@ -59,9 +64,6 @@ class BoatTargetSelector:
         pv = float(target.get("pv", 0))
         speed = abs(float(target.get("speed_cm_s", 0)))
         distance = float(target.get("distance_m", 0))
-
-        # Prefer long-lived stable tracks, then stronger returns. Do not penalize
-        # low speed heavily because docking or stopping is part of the experiment.
         return hits * 100.0 + pv * 0.2 - speed * 0.01 - distance * 0.1
 
     def _cleanup(self, packet_no):
@@ -70,6 +72,7 @@ class BoatTargetSelector:
             if last_seen < stale_before:
                 self.last_seen_packet.pop(track_id, None)
                 self.track_hits.pop(track_id, None)
+                self.first_position.pop(track_id, None)
                 if self.locked_track_id == track_id:
                     self.locked_track_id = None
 
@@ -80,10 +83,22 @@ class BoatTargetSelector:
                 continue
             self.track_hits[track_id] = self.track_hits.get(track_id, 0) + 1
             self.last_seen_packet[track_id] = packet_no
+            if track_id not in self.first_position:
+                x = float(target["x_cm"])
+                y = float(target["y_cm"])
+                self.first_position[track_id] = (x, y)
 
         self._cleanup(packet_no)
 
         candidates = [target for target in targets if self._passes_filters(target)]
+
+        # 位移过滤：在 select() 中执行（此时已有 first_position 和 track_hits）
+        # 只对已经存续了一定帧数的跟踪生效，避免误杀刚出现的慢速移动船只
+        candidates = [
+            t for t in candidates
+            if self._passes_displacement(t)
+        ]
+
         if not candidates:
             return None
 
@@ -104,6 +119,23 @@ class BoatTargetSelector:
         if self.lock_track:
             self.locked_track_id = selected.get("track_id")
         return self._decorate(selected, packet_no)
+
+    def _passes_displacement(self, target):
+        """位移过滤：存续超过15帧(=1.5秒)且总位移<阈值的目标视为固定反射，排除"""
+        if self.min_total_displacement_m is None:
+            return True
+        tid = target.get("track_id")
+        if tid is None or tid not in self.first_position:
+            return True
+        # 至少等 15 帧 (=1.5秒) 才做判断，给慢速船足够时间产生位移
+        hits = self.track_hits.get(tid, 0)
+        if hits < 15:
+            return True
+        fx, fy = self.first_position[tid]
+        x = float(target["x_cm"])
+        y = float(target["y_cm"])
+        total_disp_m = math.hypot(x - fx, y - fy) / 100.0
+        return total_disp_m >= self.min_total_displacement_m
 
     def _decorate(self, target, packet_no):
         result = dict(target)

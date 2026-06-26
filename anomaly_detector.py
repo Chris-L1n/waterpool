@@ -417,8 +417,15 @@ class AnomalyDetector:
                 accel = (cur_speed - abs(prev["speed_m_s"])) / dt
             high_accel = accel > self.ks_accel_min
 
-            if surge or high_accel:
-                reason = "speed_surge" if surge else "high_acceleration"
+            # KS触发：速度>阈值 + 持续时间达标即可（surge/accel可选检查）
+            trigger_ks = True
+            reason = "speed_threshold"
+            if surge:
+                reason = "speed_surge"
+            elif high_accel:
+                reason = "high_acceleration"
+
+            if trigger_ks:
                 if not self._in_cooldown("KS", now_mono, tid):
                     self.ks_speed_timers[tid]["speed_start_mono"] = None
                     self._emit("KS", "快速通过", [tid], speed_dur, {
@@ -626,6 +633,19 @@ class AnomalyDetector:
             "active_docking_tracks": len(self.docking_states),
             "history_tracks": len(self.track_history),
         }
+
+    def is_active(self):
+        """是否有异常正在持续中（用于驱动摄像头持续跟踪）"""
+        for ps in self.rendezvous_pairs.values():
+            if ps.get("close_start_mono") is not None:
+                return True
+        for ds in self.docking_states.values():
+            if ds.get("state") in ("DEVIATED", "STOPPED") and ds.get("was_moving"):
+                return True
+        for st in self.ks_speed_timers.values():
+            if st.get("speed_start_mono") is not None:
+                return True
+        return False
 
     def close(self):
         if self.csv_file:

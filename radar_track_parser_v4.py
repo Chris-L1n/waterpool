@@ -455,13 +455,15 @@ class SimpleTracker:
 # ============================================================
 
 class CsvWriters:
-    def __init__(self, target_csv, nearest_csv, tracks_csv):
+    def __init__(self, target_csv, nearest_csv, tracks_csv, filtered_csv=None):
         self.target_f = open(target_csv, "w", newline="", encoding="utf-8-sig") if target_csv else None
         self.nearest_f = open(nearest_csv, "w", newline="", encoding="utf-8-sig") if nearest_csv else None
         self.tracks_f = open(tracks_csv, "w", newline="", encoding="utf-8-sig") if tracks_csv else None
+        self.filtered_f = open(filtered_csv, "w", newline="", encoding="utf-8-sig") if filtered_csv else None
         self.target_w = None
         self.nearest_w = None
         self.tracks_w = None
+        self.filtered_w = None
 
         common_fields = [
             "pc_time", "packet_no", "target_index", "track_id", "match_distance_m",
@@ -476,6 +478,9 @@ class CsvWriters:
         if self.tracks_f:
             self.tracks_w = csv.DictWriter(self.tracks_f, fieldnames=common_fields)
             self.tracks_w.writeheader()
+        if self.filtered_f:
+            self.filtered_w = csv.DictWriter(self.filtered_f, fieldnames=common_fields)
+            self.filtered_w.writeheader()
 
     def _row(self, packet_no, t, pc_time=None):
         if pc_time is None:
@@ -515,6 +520,14 @@ class CsvWriters:
         self.nearest_w.writerow(self._row(packet_no, t))
         self.nearest_f.flush()
 
+    def write_filtered(self, packet_no, targets):
+        if not self.filtered_w:
+            return
+        now = datetime.now().isoformat(timespec="milliseconds")
+        for t in targets:
+            self.filtered_w.writerow(self._row(packet_no, t, now))
+        self.filtered_f.flush()
+
     def close(self):
         if self.target_f:
             self.target_f.close()
@@ -522,6 +535,8 @@ class CsvWriters:
             self.nearest_f.close()
         if self.tracks_f:
             self.tracks_f.close()
+        if self.filtered_f:
+            self.filtered_f.close()
 
 # ============================================================
 # 主循环

@@ -63,6 +63,7 @@ class RadarLiveStream:
             csv_cfg.get("targets", "radar_targets.csv"),
             csv_cfg.get("nearest", "radar_nearest.csv"),
             csv_cfg.get("tracks", "radar_tracks.csv"),
+            csv_cfg.get("filtered", "radar_filtered.csv"),
         )
         packet_no = 0
 
@@ -85,25 +86,24 @@ class RadarLiveStream:
             packet_no += 1
             targets = tracker.update(targets, packet_no)
 
-            # ① BoatTargetSelector：过滤噪声，选出可能是船的目标
-            boat_targets = [t for t in targets if boat_selector._passes_filters(t)]
-            # 如果没有通过过滤的，保留全部（避免 _passes_filters 未配置时丢失所有目标）
-            if not boat_targets:
-                boat_targets = targets
-
-            # ② 异常检测：对过滤后的目标做 SC/KS/KA
-            if self.anomaly_detector is not None:
-                prev_events = self.anomaly_detector.event_count
-                self.anomaly_detector.feed(boat_targets)
-                anomaly_triggered = self.anomaly_detector.event_count > prev_events
-            else:
-                anomaly_triggered = False
-
-            # ③ 选摄像头目标（用于雷达nearest CSV记录和摄像头指令）
+            # ① BoatTargetSelector.select()：填充 first_position + track_hits（必须每帧调用）
             nearest = boat_selector.select(targets, packet_no)
 
+            # ② 过滤噪声（含位移过滤，此时 first_position 已填充）
+            boat_targets = [t for t in targets if boat_selector._passes_filters(t)]
+            boat_targets = [t for t in boat_targets if boat_selector._passes_displacement(t)]
+
+            # ③ 异常检测：对过滤后的目标做 SC/KS/KA
+            if self.anomaly_detector is not None:
+                self.anomaly_detector.feed(boat_targets)
+                anomaly_active = self.anomaly_detector.is_active()
+            else:
+                anomaly_active = False
+
             writers.write_targets(packet_no, targets)
-            if anomaly_triggered and nearest is not None:
+            writers.write_filtered(packet_no, boat_targets)
+            # 异常活跃期间持续发目标给摄像头，而非仅触发瞬间动一次
+            if anomaly_active and nearest is not None:
                 writers.write_nearest(packet_no, nearest)
                 self.on_nearest(nearest, boat_targets)
             else:
@@ -134,6 +134,7 @@ class RadarLiveStream:
                 raise RuntimeError("Unable to open CAN adapter")
             self.running = True
             print(f"Radar live stream started: channel={channel}, baud={baud}K")
+            can_frame_no = 0
             while self.running:
                 count = dll.VCI_Receive(
                     ct.c_uint32(VCI_USBCAN2),
@@ -144,10 +145,13 @@ class RadarLiveStream:
                     ct.c_int(wait_ms),
                 )
                 if count and count > 0:
+                    can_frame_no += count
                     for index in range(count):
                         frame = frames[index]
                         data = bytes(frame.Data[: int(frame.DataLen)])
                         reassembler.feed(int(frame.ID), data, int(frame.TimeStamp))
+                    if can_frame_no % 500 == 0:
+                        print(f"[CAN] 已收到 {can_frame_no} 帧, 完整包 {packet_no}")
                 else:
                     time.sleep(0.01)
         finally:

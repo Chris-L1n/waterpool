@@ -1,0 +1,4 @@
+﻿event_time,event_type,event_label,track_ids,duration_s,details
+2026-06-26T15:49:51.542,KS,快速通过,3,0.3,"{""current_speed_m_s"": 1.0, ""average_speed_m_s"": 0.718, ""speed_ratio"": 1.39, ""acceleration_m_s2"": 0.402, ""trigger_reason"": ""speed_threshold"", ""speed_duration_s"": 0.3, ""position"": {""x"": 0.39, ""y"": 1.28}}"
+2026-06-26T15:50:08.892,KS,快速通过,98,0.3,"{""current_speed_m_s"": 0.95, ""average_speed_m_s"": 0.332, ""speed_ratio"": 2.86, ""acceleration_m_s2"": 0.401, ""trigger_reason"": ""speed_threshold"", ""speed_duration_s"": 0.3, ""position"": {""x"": 0.14, ""y"": 2.41}}"
+2026-06-26T15:50:14.691,KS,快速通过,113,0.4,"{""current_speed_m_s"": 0.65, ""average_speed_m_s"": 0.36, ""speed_ratio"": 1.8, ""acceleration_m_s2"": -2.27, ""trigger_reason"": ""speed_threshold"", ""speed_duration_s"": 0.4, ""position"": {""x"": -0.42, ""y"": 2.13}}"
