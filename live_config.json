@@ -10,7 +10,8 @@
     "batch": 2500,
     "wait_ms": 20,
     "track_threshold_m": 0.4,
-    "max_missed": 3,
+    "max_missed": 10,
+    "_max_missed": "20Hz下目标丢10帧(0.5s)后才放弃ID，减少船转弯时ID切换。原值3=0.15s太短",
     "filters": {
       "_comment": "旧版 choose_nearest 的过滤参数，已由 boat_filter 替代，保留不影响运行",
       "x_max_cm": 999999,
@@ -114,19 +115,19 @@
     },
 
     "ship_rendezvous": {
-      "_作用": "SC船-船搭靠：两船从远处接近→贴在一起→保持5秒→报警。全海域检测。",
+      "_作用": "SC船-船搭靠（已简化）：两船距离<0.5m + 保持5秒→报警。速度差/接近窗口/距离下降量已关闭。全海域检测。",
       "distance_threshold_m": 0.5,
       "_distance_threshold_m": "两船距离小于此值(米)才算贴在一起。遥控船体长约30cm，0.5m足够近",
       "duration_threshold_s": 5.0,
       "_duration_threshold_s": "贴在一起持续多少秒才报警。测试阶段5秒，正式实验改回15秒",
-      "relative_speed_threshold_m_s": 0.3,
-      "_relative_speed_threshold_m_s": "两船速度差上限(m/s)。墙壁静止，船速0.7→墙+船相对速度=0.7>0.3自动排除。这是最关键的杂波过滤",
-      "approach_distance_threshold_m": 1.0,
-      "_approach_distance_threshold_m": "两船距离小于此值(米)时开始追踪接近过程。水池仅4m长，1m足够",
-      "approach_window_s": 10.0,
-      "_approach_window_s": "接近过程追踪窗口(秒)",
-      "min_distance_drop_m": 0.3,
-      "_min_distance_drop_m": "接近过程距离至少下降多少米。水池小船运动空间有限，0.3m证明在主动靠近"
+      "relative_speed_threshold_m_s": 999,
+      "_relative_speed_threshold_m_s": "999=已禁用。实验室无需速度差过滤",
+      "approach_distance_threshold_m": 999,
+      "_approach_distance_threshold_m": "999=已禁用。实验室无需接近窗口",
+      "approach_window_s": 999,
+      "_approach_window_s": "999=已禁用",
+      "min_distance_drop_m": 999,
+      "_min_distance_drop_m": "999=已禁用。实验室无需距离下降量"
     },
 
     "fast_passage": {

@@ -1,0 +1,177 @@
+# 异常检测算法 — 实验室版 vs 生产环境
+
+> 2026-06-26 | 代码同步更新至实验室水池调试版
+
+---
+
+## 一、SC 船-船搭靠
+
+### 实验室版（当前代码）
+
+位置：`anomaly_detector.py` `_check_rendezvous()` 第 272-313 行
+
+```
+两两配对，每帧检查：
+  ① 两船距离 <0.5m → 计时
+  ② 持续 ≥5 秒 → 报警
+
+  （速度差/接近窗口/距离下降量 全部已删除）
+```
+
+配置：`live_config.json` → `ship_rendezvous`
+
+| 参数 | 实验室值 | 含义 |
+|------|---------|------|
+| `distance_threshold_m` | 0.5 | 两船多近算贴在一起 |
+| `duration_threshold_s` | 5.0 | 持续多久报警（测试用） |
+| `relative_speed_threshold_m_s` | 999 | **已删除**。实验室雷达速度有噪声，两船速度差不可靠 |
+| `approach_distance_threshold_m` | 999 | **已删除**。水池仅 4m，没有"远方接近"空间 |
+| `min_distance_drop_m` | 999 | **已删除**。实验室内两船只能从 1m 内靠近，下降空间不足 |
+
+**实验室原因：** 密闭房间内墙壁静止、船移动 → 速度差条件本身是好的防误报手段，但水的波纹和水面反射使得点位置和速度同步跳动，难以可靠区分。直接删除所有附加条件，只用距离 + 时间。核心风险是两船靠近时 SimpleTracker 的 ID 可能互换或合并——`max_missed` 已从 3 调到 10 缓解。
+
+### 生产环境版
+
+**全部恢复。**
+
+| 参数 | 生产值 | 原因 |
+|------|--------|------|
+| `duration_threshold_s` | **15.0** | 实验方案文档要求 |
+| `distance_threshold_m` | **2~5m** | 真实船舶尺寸大 |
+| `relative_speed_threshold_m_s` | **1~3m/s** | 恢复启用。海面墙-船场景不存在，但浪面漂移物可以区分 |
+| `approach_distance_threshold_m` | **10~50m** | 港口尺度 |
+| `min_distance_drop_m` | **5~20m** | 港口尺度 |
+
+**实现方式：** 只需把 JSON 中的四个 999 值改回真实值。代码无需修改。
+
+---
+
+## 二、KS 快速通过
+
+### 实验室版（当前代码）
+
+位置：`anomaly_detector.py` `_check_fast_passage()` 第 319-433 行
+
+```
+每个目标独立判断：
+  ① 速度 >0.5m/s
+  ② 持续 ≥0.3 秒
+  ③ 报警
+  （surge/accel 条件已关闭）
+```
+
+配置：`live_config.json` → `fast_passage`
+
+| 参数 | 实验室值 | 含义 |
+|------|---------|------|
+| `speed_threshold_m_s` | 0.5 | 遥控船极速 ~1.0m/s，设一半即可触发 |
+| `min_duration_s` | 0.3 | 20Hz 下约 6 帧，排除瞬时毛刺 |
+| `speed_ratio_threshold` | 999 | **已禁用** |
+| `acceleration_threshold_m_s2` | 999 | **已禁用** |
+
+**实验室原因：** 只有一艘小船，极速最多 1.0m/s，1.5m/s 永远无法触发。关闭 surge/accel，只靠绝对速度阈值判断。
+
+### 生产环境版
+
+**恢复 surge/accel。**
+
+| 参数 | 生产值 | 原因 |
+|------|--------|------|
+| `speed_threshold_m_s` | **10~15** | 港口快艇速度 |
+| `speed_ratio_threshold` | **2.0~3.0** | 恢复启用。区分"本来就快的船"和"突然加速" |
+| `acceleration_threshold_m_s2` | **1.0~2.0** | 恢复启用 |
+| `min_duration_s` | **2.0** | 恢复原值 |
+
+**实现方式：** JSON 中三个参数从 999 改回正常值。代码第 420 行当前 `trigger_ks = True` 直接跳过 surge/accel 检查——生产环境需要把这行改回 `if surge or high_accel:`。
+
+---
+
+## 三、KA 船靠岸送人上岸
+
+### 实验室版（当前代码）
+
+位置：`anomaly_detector.py` `_check_shore_docking()` 第 440-600 行
+
+双路径，任一触发即报警：
+
+**路径A（偏航+减速停留）：**
+
+```
+① was_moving=True（必须曾经移动过 → 排除墙壁固定反射）
+② X 偏离航道中心线 >0.3m（偏航）
+③ 速度 <0.2m/s（减速停止）
+④ 持续 ≥10 秒 → 报警
+```
+
+**路径B（运动特征，不依赖区域多边形）：**
+
+```
+① 距 unauthorized_docking_zone 边界线 <0.5m 算"到达岸边"
+② 回溯 20 秒：接近速度 >0.3m/s + 距离下降 >0.3m
+③ 到达后速度 <0.2m/s + 持续 ≥10 秒 → 报警
+```
+
+| 参数 | 实验室值 | 含义 |
+|------|---------|------|
+| `deviation_threshold_m` | 0.3 | 航道宽 0.6m，中心离开 0.3m 算偏航 |
+| `speed_threshold_m_s` | 0.2 | 多慢算停止 |
+| `duration_threshold_s` | 10.0 | 停了多久才报警 |
+
+**实验室原因：** `was_moving` 保护是实验室独有的——密闭房间的墙壁反射位置固定、速度为零，恰好满足 KA 的全部条件。真实海面不存在固定反射点。路径B 依赖 `unauthorized_docking_zone` 多边形，坐标是模板值，暂时用不上。`duration_threshold_s` 建议从 10 改到 3 秒方便测试。
+
+### 生产环境版
+
+**可以去掉 `was_moving` 保护**（海面无固定反射）。路径A 逻辑不变，路径B 的坐标系改为 GPS。参数放大到港口尺度：
+
+| 参数 | 生产值 |
+|------|--------|
+| `deviation_threshold_m` | **10~50m** |
+| `speed_threshold_m_s` | **0.5~2m/s** |
+| `duration_threshold_s` | **10~60s** |
+| `shore_arrival_distance_m` | **20~50m** |
+
+**实现方式：** 路径A 删除 `was_moving` 判断；JSON 参数放大。路径B 改动较大——需要引入 GPS 和电子围栏 AOI 替代多边形距离计算。
+
+---
+
+## 四、滤波算法
+
+### 实验室版（当前代码）
+
+位置：`boat_target_filter.py`
+
+| 过滤层 | 怎么做的 | 为什么 |
+|--------|---------|--------|
+| XY 位置 | `x=[-60,60]cm`, `y=[0,400]cm` | 水池范围外全是墙壁/天花板 |
+| PV 信号质量 | ≥30 | 弱信号丢弃 |
+| 匹配距离 | <0.15m | 抖动跳大的丢弃 |
+| 最大速度 | <200cm/s | 雷达偶尔跳到 11m/s |
+| **位移过滤** | 存续 >15 帧且总位移 <0.3m → 丢弃 | **最关键的区分**：船移动数米，墙壁永不移动 |
+| 最小帧数 | ≥10 帧 | 短时噪声丢弃 |
+
+### 生产环境版
+
+**去掉位移过滤**（海面无固定反射）。XY 范围改为更远的 AOI。max_abs_speed 放大。min_total_displacement_m 设为 null（关闭）。
+
+---
+
+## 五、三个异常当前状态一览
+
+| 异常 | 触发条件（实验室） | 已验证？ |
+|------|-------------------|---------|
+| **KS** | 速度 >0.5m/s，持续 0.3s | ✅ 触发 9 次 |
+| **SC** | 两船距离 <0.5m，持续 5s | 🟡 需两艘船 |
+| **KA** | 偏航+减速+停留 10s | 🟡 需船靠岸停下 |
+
+---
+
+## 六、实验室→生产要改哪些地方
+
+| 改动 | 位置 | 怎么改 |
+|------|------|--------|
+| 恢复 SC 的三个条件 | `anomaly_detector.py:420` | `trigger_ks = True` → `if surge or high_accel:` |
+| 恢复 KS 的 surge/accel | `anomaly_detector.py:301-303` | 加回 `relative_speed` 和 `approach_drop` 判断 |
+| 去掉 KA 的 was_moving | `anomaly_detector.py:638` | 删除 `and ds.get("was_moving")` |
+| 去掉位移过滤 | `live_config.json` | `min_total_displacement_m: null` |
+| 所有阈值放大 | `live_config.json` | 距离从米→几十米，速度从 0.5→10+ |
+| 坐标系统 | 全局 | 米→经纬度 |

@@ -1,0 +1,2 @@
+﻿event_time,event_type,event_label,track_ids,duration_s,details
+2026-06-27T15:21:55.290,KA,船靠岸送人上岸,99,10.0,"{""path"": ""deviation_stop"", ""position"": {""x"": -100, ""y"": -100}, ""speed_m_s"": 0.1, ""deviation_m"": 100.0}"

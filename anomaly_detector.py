@@ -274,14 +274,11 @@ class AnomalyDetector:
 
     def _check_rendezvous(self, targets, now_mono):
         """
-        三阶段判断：
-          阶段1 接近：两船距离进入接近范围，追踪距离变化。距离下降量 ≥ 阈值 → 确认靠近
-          阶段2 并靠：距离 < 搭靠阈值 + 相对速度 < 阈值 + 两船在搭靠区 → 计时
-          阶段3 报警：并靠持续 ≥ 15s → 报警
+        简化版 SC：两船距离 < 阈值 + 持续 ≥ 阈值 → 报警。
+        实验室环境不需要速度差/接近窗口/距离下降量。
         """
         active = [t for t in targets if t.get("track_id") is not None]
         if len(active) < 2:
-            # 不足两船，清理所有 pair
             self.rendezvous_pairs.clear()
             return
 
@@ -295,65 +292,22 @@ class AnomalyDetector:
                 checked.add(pk)
 
                 dist = math.hypot(a["x_m"] - b["x_m"], a["y_m"] - b["y_m"])
-                rv = abs(a["speed_m_s"] - b["speed_m_s"])  # 相对速度
 
-                # 初始化 pair 状态
                 if pk not in self.rendezvous_pairs:
-                    self.rendezvous_pairs[pk] = {
-                        "approach_start_mono": None,
-                        "approach_start_dist": None,
-                        "close_start_mono": None,
-                    }
+                    self.rendezvous_pairs[pk] = {"close_start_mono": None}
                 ps = self.rendezvous_pairs[pk]
 
-                # ── 阶段1：接近窗口追踪 ──
-                if dist < self.sc_approach_dist:
-                    if ps["approach_start_mono"] is None:
-                        ps["approach_start_mono"] = now_mono
-                        ps["approach_start_dist"] = dist
+                # 距离 < 阈值 = 并靠并计时，距离 > 阈值 = 分开则清零
+                if dist < self.sc_dist_threshold:
+                    if ps["close_start_mono"] is None:
+                        ps["close_start_mono"] = now_mono
+                    dur = now_mono - ps["close_start_mono"]
+                    if dur >= self.sc_duration_s:
+                        if not self._in_cooldown("SC", now_mono, pk[0], pk[1]):
+                            self._emit("SC", "船-船搭靠", [ta, tb], dur, {
+                                "distance_m": round(dist, 3)})
                 else:
-                    # 超出接近范围，重置
-                    ps["approach_start_mono"] = None
-                    ps["approach_start_dist"] = None
                     ps["close_start_mono"] = None
-
-                # ── 阶段2：并靠判断（全海域，不限定区域）──
-                close = (
-                    dist < self.sc_dist_threshold
-                    and rv < self.sc_rel_speed_max
-                )
-
-                if not close:
-                    ps["close_start_mono"] = None
-                    continue
-
-                # 验证接近距离下降量
-                if ps["approach_start_dist"] is not None:
-                    approach_drop = ps["approach_start_dist"] - dist
-                else:
-                    approach_drop = 0.0
-
-                if approach_drop < self.sc_min_dist_drop:
-                    # 距离没有实质下降 → 不是靠近，可能是恰好路过
-                    ps["close_start_mono"] = None
-                    continue
-
-                # 开始/继续并靠计时
-                if ps["close_start_mono"] is None:
-                    ps["close_start_mono"] = now_mono
-
-                dur = now_mono - ps["close_start_mono"]
-                if dur >= self.sc_duration_s:
-                    if not self._in_cooldown("SC", now_mono, pk[0], pk[1]):
-                        self._emit("SC", "船-船搭靠", [ta, tb], dur, {
-                            "distance_m": round(dist, 3),
-                            "relative_speed_m_s": round(rv, 3),
-                            "approach_distance_drop_m": round(approach_drop, 3),
-                            "track_a": {"x": round(a["x_m"], 2), "y": round(a["y_m"], 2),
-                                        "speed": round(a["speed_m_s"], 2)},
-                            "track_b": {"x": round(b["x_m"], 2), "y": round(b["y_m"], 2),
-                                        "speed": round(b["speed_m_s"], 2)},
-                        })
 
         # 清理消失的 pair
         for pk in list(self.rendezvous_pairs):
