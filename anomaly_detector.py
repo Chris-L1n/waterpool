@@ -117,9 +117,9 @@ class AnomalyDetector:
         z = config.get("zones", {})
         self.normal_channel = z.get("normal_channel", {}).get("points", [])
         self.docking_zone = z.get("unauthorized_docking_zone", {}).get("points", [])
-        ap = z.get("authorized_docking_point", {})
-        self.auth_dock_pos = ap.get("position", None)
-        self.auth_dock_radius = float(ap.get("radius_m", 0.3))
+        ap = z.get("authorized_docking_point") or {}
+        self.auth_dock_pos = ap.get("position", None) if ap else None
+        self.auth_dock_radius = float(ap.get("radius_m", 0.3)) if ap else 0.3
 
         # ── 检测参数 ──
         ad = config.get("anomaly_detection", {})

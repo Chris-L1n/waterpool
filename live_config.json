@@ -90,15 +90,11 @@
     },
     "unauthorized_docking_zone": {
       "_作用": "KA路径B用此多边形的边界线计算'船距岸边多远'",
-      "_设置方法": "画一个靠岸边的矩形，多边形顶点按顺时针或逆时针排列。代码只用到边界线算距离，不需要精确包含靠岸点",
-      "points": [[-1.0, 3.0], [-0.3, 3.0], [-0.3, 4.0], [-1.0, 4.0]]
+      "_设置方法": "岸边=水池近端全宽横带，Y=0~0.5m，X覆盖整个水池(-0.6~0.6)",
+      "points": [[-0.7, 0.0], [0.7, 0.0], [0.7, 0.5], [-0.7, 0.5]]
     },
-    "authorized_docking_point": {
-      "_作用": "KA检测时船在此范围内不报警（正规停靠点豁免）",
-      "_设置方法": "position = 雷达坐标系下正规停靠点的[X, Y]坐标（米）。radius_m = 豁免半径（米），船离此点小于此距离不报警",
-      "position": [0.0, 3.8],
-      "radius_m": 0.3
-    }
+    "authorized_docking_point": null,
+    "_authorized_docking_point_comment": "实验室水池太小，已关闭。代码里 _in_authorized_docking 遇到 null 直接返回 False。"
   },
 
   "anomaly_detection": {
@@ -144,16 +140,16 @@
 
     "shore_docking": {
       "_作用": "KA船靠岸送人上岸：两条路径任一触发即报警。路径A=偏航+减速停留。路径B=快速接近岸边+到达后低速停留。",
-      "deviation_threshold_m": 0.3,
+      "deviation_threshold_m": 0.2,
       "_deviation_threshold_m": "路径A：X坐标偏离航道中心线超过此值(米)算'偏航'",
       "speed_threshold_m_s": 0.2,
       "_speed_threshold_m_s": "路径A+B：速度低于此值(m/s)算'停止/低速'",
-      "duration_threshold_s": 10.0,
+      "duration_threshold_s": 4.0,
       "_duration_threshold_s": "路径A+B：停止/低速状态持续多少秒才报警。实验方案要求≥10秒",
       "shore_arrival_distance_m": 0.5,
       "_shore_arrival_distance_m": "路径B：距岸边小于此值(米)算'到达岸边'",
-      "shore_approach_window_s": 20.0,
-      "_shore_approach_window_s": "路径B：到达岸边后回溯多少秒的运动数据来判断'是否快速接近'",
+      "shore_approach_window_s": 5.0,
+      "_shore_approach_window_s": "路径B：到达岸边后回溯多少秒的运动数据来判断'是否快速接近'。4m水池跑完全程约13s，5s回溯足够",
       "shore_fast_approach_mps": 0.3,
       "_shore_fast_approach_mps": "路径B：接近阶段平均速度超过此值(m/s)算'快速接近'",
       "shore_min_distance_drop_m": 0.3,
