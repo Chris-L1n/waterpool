@@ -269,18 +269,24 @@ class AnomalyDetector:
         self._check_fast_passage(targets, now_mono, ka_targets)
 
     # ════════════════════════════════════════════════════════════
-    # SC 船-船搭靠（参考原型 detect_berthing）
+    # SC 船-船搭靠
     # ════════════════════════════════════════════════════════════
 
     def _check_rendezvous(self, targets, now_mono):
         """
-        简化版 SC：两船距离 < 阈值 + 持续 ≥ 阈值 → 报警。
-        实验室环境不需要速度差/接近窗口/距离下降量。
+        增强版 SC：双路径判断
+          路径1（主）：平滑距离 < 阈值 + 持续 ≥ 阈值 → 报警
+          路径2（辅助）：距离稳定 + 持续 ≥ 阈值 → 同一物理集群 → 报警
+          优先使用 smooth_x_m/smooth_y_m（SimpleTracker EMA 平滑后的坐标）。
         """
         active = [t for t in targets if t.get("track_id") is not None]
         if len(active) < 2:
             self.rendezvous_pairs.clear()
             return
+
+        dist_stable_window_s = 4.0     # 距离稳定性窗口
+        dist_stable_std_max = 0.18     # 标准差 < 此值 = 距离稳定（两船同动/绑定）
+        dist_stable_mean_max = 2.0     # 距离稳定 + 平均距离 < 此值 → 同一集群
 
         checked = set()
 
@@ -288,24 +294,70 @@ class AnomalyDetector:
             for j in range(i + 1, len(active)):
                 a, b = active[i], active[j]
                 ta, tb = a["track_id"], b["track_id"]
+
+                # 至少有一方必须曾经移动过（排除双墙壁反射对）
+                hist_a = list(self.track_history.get(ta, []))
+                hist_b = list(self.track_history.get(tb, []))
+                a_moved = any(abs(h.get("speed_m_s", 0)) > 0.1 for h in hist_a[-50:]) if hist_a else False
+                b_moved = any(abs(h.get("speed_m_s", 0)) > 0.1 for h in hist_b[-50:]) if hist_b else False
+                if not a_moved and not b_moved:
+                    continue
+
                 pk = (min(ta, tb), max(ta, tb))
                 checked.add(pk)
 
-                dist = math.hypot(a["x_m"] - b["x_m"], a["y_m"] - b["y_m"])
+                # 优先使用平滑坐标
+                ax = a.get("smooth_x_m", a["x_m"])
+                ay = a.get("smooth_y_m", a["y_m"])
+                bx = b.get("smooth_x_m", b["x_m"])
+                by = b.get("smooth_y_m", b["y_m"])
+                dist = math.hypot(ax - bx, ay - by)
 
                 if pk not in self.rendezvous_pairs:
-                    self.rendezvous_pairs[pk] = {"close_start_mono": None}
+                    self.rendezvous_pairs[pk] = {
+                        "close_start_mono": None,
+                        "dist_history": deque(maxlen=200),
+                    }
                 ps = self.rendezvous_pairs[pk]
 
-                # 距离 < 阈值 = 并靠并计时，距离 > 阈值 = 分开则清零
-                if dist < self.sc_dist_threshold:
+                # 维护距离历史
+                ps["dist_history"].append((now_mono, dist))
+
+                # ── 距离稳定性检测 ──
+                # 如果两船的相对距离在最近 N 秒内几乎不变，
+                # 它们要么是绑在一起的，要么在编队航行 → 同一集群
+                cut = now_mono - dist_stable_window_s
+                recent = [d for t, d in ps["dist_history"] if t >= cut]
+                dist_stable = False
+                stable_mean = 0.0
+                if len(recent) >= 8:  # 至少8帧=0.4s@20Hz
+                    stable_mean = sum(recent) / len(recent)
+                    variance = sum((d - stable_mean) ** 2 for d in recent) / len(recent)
+                    stable_std = math.sqrt(variance)
+                    dist_stable = (
+                        stable_mean < dist_stable_mean_max
+                        and stable_std < dist_stable_std_max
+                    )
+
+                # ── 有效距离阈值 ──
+                if dist_stable:
+                    # 距离稳定 → 放宽到平均距离的 1.1 倍（容忍微小波动）
+                    effective_threshold = max(self.sc_dist_threshold, stable_mean * 1.15)
+                else:
+                    effective_threshold = self.sc_dist_threshold
+
+                # ── 距离计时 ──
+                if dist < effective_threshold:
                     if ps["close_start_mono"] is None:
                         ps["close_start_mono"] = now_mono
                     dur = now_mono - ps["close_start_mono"]
                     if dur >= self.sc_duration_s:
                         if not self._in_cooldown("SC", now_mono, pk[0], pk[1]):
+                            trigger_type = "distance_stable" if dist_stable else "distance"
                             self._emit("SC", "船-船搭靠", [ta, tb], dur, {
-                                "distance_m": round(dist, 3)})
+                                "distance_m": round(dist, 3),
+                                "trigger": trigger_type,
+                            })
                 else:
                     ps["close_start_mono"] = None
 

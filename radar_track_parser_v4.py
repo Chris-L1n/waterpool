@@ -377,14 +377,16 @@ class SimpleTracker:
       - target_index 只是当前帧里的临时编号，不是固定目标ID。
       - track_id 是程序根据连续帧位置接近程度生成的跟踪编号。
       - 最近邻匹配 + 轨迹重连：新目标出现时先检查是否是最近刚丢的旧轨迹，是则继承旧ID。
+      - EMA 位置平滑：每帧对活跃轨迹做指数移动平均，输出 smooth_x_m/smooth_y_m。
     """
-    def __init__(self, match_threshold_m=0.4, max_missed=3):
+    def __init__(self, match_threshold_m=0.4, max_missed=3, ema_alpha=0.25):
         self.match_threshold_m = float(match_threshold_m)
         self.max_missed = int(max_missed)
+        self.ema_alpha = float(ema_alpha)  # EMA 平滑系数，约 4 帧收敛
         self.next_track_id = 1
-        self.active = {}       # track_id -> {last_x, last_y, last_time, missed}
+        self.active = {}       # track_id -> {last_x, last_y, sm_x, sm_y, last_time, missed}
         self.history = {}      # track_id -> list[所有目标点]
-        self._recently_lost = {}  # track_id -> {last_x, last_y, lost_at_packet}
+        self._recently_lost = {}  # track_id -> {last_x, last_y, sm_x, sm_y, lost_at_packet}
 
     @staticmethod
     def _dist(a, b):
@@ -430,24 +432,37 @@ class SimpleTracker:
                 if recon_id is not None:
                     best_id = recon_id
                     best_d = None
+                    # 恢复平滑位置
+                    sm_x = self._recently_lost[recon_id].get("sm_x", t["x_m"])
+                    sm_y = self._recently_lost[recon_id].get("sm_y", t["y_m"])
                 else:
                     best_id = self.next_track_id
                     self.next_track_id += 1
                     self.history[best_id] = []
+                    sm_x, sm_y = t["x_m"], t["y_m"]
             else:
                 unmatched_tracks.discard(best_id)
+                # EMA 平滑
+                old_sm = self.active[best_id]
+                alpha = self.ema_alpha
+                sm_x = old_sm.get("sm_x", t["x_m"]) * (1 - alpha) + t["x_m"] * alpha
+                sm_y = old_sm.get("sm_y", t["y_m"]) * (1 - alpha) + t["y_m"] * alpha
 
             tt = dict(t)
             tt["track_id"] = best_id
             tt["match_distance_m"] = 0.0 if best_d is None else best_d
             tt["pc_time"] = pc_time
             tt["packet_no"] = packet_no
+            tt["smooth_x_m"] = round(sm_x, 4)
+            tt["smooth_y_m"] = round(sm_y, 4)
             output.append(tt)
 
             # 更新活动轨迹
             self.active[best_id] = {
                 "last_x": t["x_m"],
                 "last_y": t["y_m"],
+                "sm_x": sm_x,
+                "sm_y": sm_y,
                 "last_time": pc_time,
                 "missed": 0,
             }
@@ -463,6 +478,8 @@ class SimpleTracker:
                 self._recently_lost[tid] = {
                     "last_x": info["last_x"],
                     "last_y": info["last_y"],
+                    "sm_x": info.get("sm_x", info["last_x"]),
+                    "sm_y": info.get("sm_y", info["last_y"]),
                     "lost_at_packet": packet_no,
                 }
 
