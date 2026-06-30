@@ -449,7 +449,11 @@ class AnomalyDetector:
                 ds["state"] = "NORMAL"
 
         elif state == "STOPPED":
-            if spd < self.ka_speed_low and not in_auth:
+            # 船回到中心线 → 立即重置（无论速度设置如何）
+            if not deviated:
+                ds["state"] = "NORMAL"
+                ds["stopped_mono"] = None
+            elif spd < self.ka_speed_low and not in_auth:
                 dur = now_mono - (ds["stopped_mono"] or now_mono)
                 if dur >= self.ka_duration_s:
                     if not self._in_cooldown("KA", now_mono, tid):
@@ -463,79 +467,50 @@ class AnomalyDetector:
                         ds["stopped_mono"] = None
                         return True
             else:
-                if spd >= self.ka_speed_low or not deviated:
-                    ds["state"] = "NORMAL"
-                    ds["stopped_mono"] = None
+                # spd >= ka_speed_low → 船又动了，重置
+                ds["state"] = "NORMAL"
+                ds["stopped_mono"] = None
 
         return False
 
     def _ka_path_b(self, tid, x, y, spd, now_mono):
         """
-        路径B：运动特征判断（参考原型 detect_shore）
-          ① 维护距岸边距离的历史（接近窗口时长）
-          ② 首次进入岸边距离阈值时，检查接近窗口：
-               接近速度 ≥ 阈值 + 距离下降量 ≥ 阈值 → 标记为"快速接近"
-          ③ 到达后速度持续低于阈值 → 报警
+        路径B（实验室简化版）：
+          曾移动过 + 进入岸边区域(shore_d < 阈值) + 持续 ≥ 阈值 → 报警
+          去掉了回溯窗口/接近速度/距离下降等港区级别判断。
         """
         shore_d = self._shore_dist(x, y)
+        arrived = shore_d <= self.ka_shore_dist
 
-        # 初始化
         if tid not in self.shore_approach:
             self.shore_approach[tid] = {
-                "history": deque(maxlen=600),
                 "arrival_mono": None,
-                "approached_fast": False,
+                "was_moving": False,
             }
         sa = self.shore_approach[tid]
 
-        # 维护历史（保留接近窗口时长内的记录）
-        sa["history"].append((now_mono, shore_d, x, y))
-        cutoff = now_mono - self.ka_approach_window_s
-        while sa["history"] and sa["history"][0][0] < cutoff:
-            sa["history"].popleft()
-
-        # 判断是否到达岸边
-        arrived = shore_d <= self.ka_shore_dist
+        if abs(spd) >= 0.1:
+            sa["was_moving"] = True
+        if not sa["was_moving"]:
+            return False
 
         if arrived and sa["arrival_mono"] is None:
-            # 首次到达：检查接近窗口内的运动特征
             sa["arrival_mono"] = now_mono
-            hist_list = list(sa["history"])
-            if len(hist_list) >= 3:
-                first_mono, first_dist, fx, fy = hist_list[0]
-                last_mono, last_dist, lx, ly = hist_list[-1]
-
-                drop = first_dist - last_dist
-                dur = last_mono - first_mono
-                avg_speed = math.hypot(lx - fx, ly - fy) / max(dur, 1e-6)
-
-                if avg_speed >= self.ka_fast_approach and drop >= self.ka_dist_drop:
-                    sa["approached_fast"] = True
-
-        if not arrived:
+        elif not arrived:
             sa["arrival_mono"] = None
-            sa["approached_fast"] = False
+            return False
 
-        # 快速接近 + 到达后低速 → 报警
-        if sa["approached_fast"] and arrived and sa["arrival_mono"] is not None:
-            if spd <= self.ka_post_slow:
-                dur = now_mono - sa["arrival_mono"]
-                if dur >= self.ka_duration_s:
-                    if not self._in_cooldown("KA", now_mono, tid):
-                        self._emit("KA", "船靠岸送人上岸", [tid], dur, {
-                            "path": "motion_feature",
-                            "position": {"x": round(x, 2), "y": round(y, 2)},
-                            "speed_m_s": round(spd, 3),
-                            "shore_distance_m": round(shore_d, 3),
-                        })
-                        sa["approached_fast"] = False
-                        sa["arrival_mono"] = None
-                        return True
-            else:
-                # 又动了 → 重置
+        dur = now_mono - sa["arrival_mono"]
+        if dur >= self.ka_duration_s:
+            if not self._in_cooldown("KA", now_mono, tid):
+                self._emit("KA", "船靠岸送人上岸", [tid], dur, {
+                    "path": "motion_feature",
+                    "position": {"x": round(x, 2), "y": round(y, 2)},
+                    "speed_m_s": round(spd, 3),
+                    "shore_distance_m": round(shore_d, 3),
+                })
                 sa["arrival_mono"] = None
-                sa["approached_fast"] = False
-
+                return True
         return False
 
     # ════════════════════════════════════════════════════════════

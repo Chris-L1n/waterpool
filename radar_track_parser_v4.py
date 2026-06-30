@@ -371,36 +371,48 @@ def choose_nearest(targets, x_max_cm=500, y_min_cm=500, speed_max_cm_s=0,
 
 class SimpleTracker:
     """
-    给没有ID的雷达目标分配跨帧稳定的
-    给每个目标分配程序自己的 track_id。
+    给没有ID的雷达目标分配跨帧稳定的 track_id。
 
     说明：
       - target_index 只是当前帧里的临时编号，不是固定目标ID。
       - track_id 是程序根据连续帧位置接近程度生成的跟踪编号。
-      - 当前版本采用最近邻匹配：当前目标离上一帧某条轨迹最近，且距离小于阈值，就认为是同一目标。
+      - 最近邻匹配 + 轨迹重连：新目标出现时先检查是否是最近刚丢的旧轨迹，是则继承旧ID。
     """
     def __init__(self, match_threshold_m=0.4, max_missed=3):
         self.match_threshold_m = float(match_threshold_m)
         self.max_missed = int(max_missed)
         self.next_track_id = 1
-        self.active = {}   # track_id -> {last_x, last_y, last_time, missed}
-        self.history = {}  # track_id -> list[目标点]
+        self.active = {}       # track_id -> {last_x, last_y, last_time, missed}
+        self.history = {}      # track_id -> list[所有目标点]
+        self._recently_lost = {}  # track_id -> {last_x, last_y, lost_at_packet}
 
     @staticmethod
     def _dist(a, b):
         return math.hypot(a["x_m"] - b["last_x"], a["y_m"] - b["last_y"])
+
+    def _try_reconnect(self, target, packet_no):
+        """检查新目标是否是最近丢失的轨迹回来了。是则返回旧 track_id，否则返回 None。"""
+        best_id = None
+        best_d = self.match_threshold_m * 2.0  # 重连距离放宽一倍
+        for tid, info in list(self._recently_lost.items()):
+            frames_lost = packet_no - info["lost_at_packet"]
+            if frames_lost > self.max_missed * 3:
+                del self._recently_lost[tid]
+                continue
+            d = math.hypot(target["x_m"] - info["last_x"], target["y_m"] - info["last_y"])
+            if d < best_d:
+                best_id = tid
+                best_d = d
+        return best_id
 
     def update(self, targets, packet_no, pc_time=None):
         """输入当前帧 targets，返回添加 track_id 后的新 targets。"""
         if pc_time is None:
             pc_time = datetime.now().isoformat(timespec="milliseconds")
 
-        # 所有已有轨迹先记为未匹配
         unmatched_tracks = set(self.active.keys())
-        assigned_track_ids = set()
         output = []
 
-        # 为了让匹配更稳定，优先处理距离雷达更近/更可靠的点
         current_targets = sorted(targets, key=lambda t: t.get("distance_m", 999999))
 
         for t in current_targets:
@@ -413,10 +425,15 @@ class SimpleTracker:
                     best_d = d
 
             if best_id is None:
-                # 新目标，新建轨迹
-                best_id = self.next_track_id
-                self.next_track_id += 1
-                self.history[best_id] = []
+                # 无活跃轨迹匹配 → 检查是否是最近丢失的轨迹回来了
+                recon_id = self._try_reconnect(t, packet_no)
+                if recon_id is not None:
+                    best_id = recon_id
+                    best_d = None
+                else:
+                    best_id = self.next_track_id
+                    self.next_track_id += 1
+                    self.history[best_id] = []
             else:
                 unmatched_tracks.discard(best_id)
 
@@ -426,9 +443,8 @@ class SimpleTracker:
             tt["pc_time"] = pc_time
             tt["packet_no"] = packet_no
             output.append(tt)
-            assigned_track_ids.add(best_id)
 
-            # 更新活动轨迹的最后位置
+            # 更新活动轨迹
             self.active[best_id] = {
                 "last_x": t["x_m"],
                 "last_y": t["y_m"],
@@ -436,14 +452,20 @@ class SimpleTracker:
                 "missed": 0,
             }
             self.history.setdefault(best_id, []).append(tt)
+            # 重连成功后从丢失列表移除
+            self._recently_lost.pop(best_id, None)
 
-        # 对本帧没有匹配到的轨迹，missed + 1；超过 max_missed 后删除活动状态
+        # 对本帧未匹配的轨迹，missed + 1；超过 max_missed → 移入丢失列表
         for tid in list(unmatched_tracks):
             self.active[tid]["missed"] += 1
             if self.active[tid]["missed"] > self.max_missed:
-                del self.active[tid]
+                info = self.active.pop(tid)
+                self._recently_lost[tid] = {
+                    "last_x": info["last_x"],
+                    "last_y": info["last_y"],
+                    "lost_at_packet": packet_no,
+                }
 
-        # 恢复成当前帧原顺序，方便和 target_index 对照
         output.sort(key=lambda t: t["index"])
         return output
 
