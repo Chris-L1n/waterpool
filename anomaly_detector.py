@@ -280,9 +280,9 @@ class AnomalyDetector:
           优先使用 smooth_x_m/smooth_y_m（SimpleTracker EMA 平滑后的坐标）。
         """
         active = [t for t in targets if t.get("track_id") is not None]
+        active_tids = {t["track_id"] for t in active}
         if len(active) < 2:
-            self.rendezvous_pairs.clear()
-            return
+            return  # 不足两艘无法配对，保留已有 pair（不清空计时器）
 
         dist_stable_window_s = 4.0     # 距离稳定性窗口
         dist_stable_std_max = 0.18     # 标准差 < 此值 = 距离稳定（两船同动/绑定）
@@ -294,21 +294,27 @@ class AnomalyDetector:
             for j in range(i + 1, len(active)):
                 a, b = active[i], active[j]
                 ta, tb = a["track_id"], b["track_id"]
-
-                # 双方都必须有持续运动痕迹（排除墙壁/固定反射）
-                hist_a = list(self.track_history.get(ta, []))
-                hist_b = list(self.track_history.get(tb, []))
-                def moving_ratio(hist, n=50, min_frac=0.25):
-                    """最近 n 帧中速度 >0.1 的帧占比 >= min_frac"""
-                    if not hist: return False
-                    recent = hist[-min(n, len(hist)):]
-                    if len(recent) < 10: return False
-                    return sum(1 for h in recent if abs(h.get("speed_m_s", 0)) > 0.1) / len(recent) >= min_frac
-                if not moving_ratio(hist_a) or not moving_ratio(hist_b):
-                    continue
-
                 pk = (min(ta, tb), max(ta, tb))
+
+                # 仅首次创建 pair 时检查双方是否都在动（排除双墙壁）
+                if pk not in self.rendezvous_pairs:
+                    hist_a = list(self.track_history.get(ta, []))
+                    hist_b = list(self.track_history.get(tb, []))
+                    def moving_ratio(hist, n=50, min_frac=0.25):
+                        if not hist: return False
+                        recent = hist[-min(n, len(hist)):]
+                        if len(recent) < 10: return False
+                        return sum(1 for h in recent if abs(h.get("speed_m_s", 0)) > 0.1) / len(recent) >= min_frac
+                    if not moving_ratio(hist_a) or not moving_ratio(hist_b):
+                        continue
+                    self.rendezvous_pairs[pk] = {
+                        "close_start_mono": None,
+                        "dist_history": deque(maxlen=200),
+                        "first_seen": now_mono,
+                    }
+
                 checked.add(pk)
+                ps = self.rendezvous_pairs[pk]
 
                 # 优先使用平滑坐标
                 ax = a.get("smooth_x_m", a["x_m"])
@@ -316,13 +322,6 @@ class AnomalyDetector:
                 bx = b.get("smooth_x_m", b["x_m"])
                 by = b.get("smooth_y_m", b["y_m"])
                 dist = math.hypot(ax - bx, ay - by)
-
-                if pk not in self.rendezvous_pairs:
-                    self.rendezvous_pairs[pk] = {
-                        "close_start_mono": None,
-                        "dist_history": deque(maxlen=200),
-                    }
-                ps = self.rendezvous_pairs[pk]
 
                 # 维护距离历史
                 ps["dist_history"].append((now_mono, dist))
@@ -365,9 +364,9 @@ class AnomalyDetector:
                 else:
                     ps["close_start_mono"] = None
 
-        # 清理消失的 pair
+        # 仅清理双方都已消失的 pair（至少一方仍在 active 就保留）
         for pk in list(self.rendezvous_pairs):
-            if pk not in checked:
+            if pk[0] not in active_tids and pk[1] not in active_tids:
                 del self.rendezvous_pairs[pk]
 
     # ════════════════════════════════════════════════════════════
