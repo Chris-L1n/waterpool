@@ -295,12 +295,16 @@ class AnomalyDetector:
                 a, b = active[i], active[j]
                 ta, tb = a["track_id"], b["track_id"]
 
-                # 至少有一方必须曾经移动过（排除双墙壁反射对）
+                # 双方都必须有持续运动痕迹（排除墙壁/固定反射）
                 hist_a = list(self.track_history.get(ta, []))
                 hist_b = list(self.track_history.get(tb, []))
-                a_moved = any(abs(h.get("speed_m_s", 0)) > 0.1 for h in hist_a[-50:]) if hist_a else False
-                b_moved = any(abs(h.get("speed_m_s", 0)) > 0.1 for h in hist_b[-50:]) if hist_b else False
-                if not a_moved and not b_moved:
+                def moving_ratio(hist, n=50, min_frac=0.25):
+                    """最近 n 帧中速度 >0.1 的帧占比 >= min_frac"""
+                    if not hist: return False
+                    recent = hist[-min(n, len(hist)):]
+                    if len(recent) < 10: return False
+                    return sum(1 for h in recent if abs(h.get("speed_m_s", 0)) > 0.1) / len(recent) >= min_frac
+                if not moving_ratio(hist_a) or not moving_ratio(hist_b):
                     continue
 
                 pk = (min(ta, tb), max(ta, tb))
@@ -591,10 +595,27 @@ class AnomalyDetector:
         self.csv_file.flush()
 
         print(f"\n{'='*50}")
-        print(f"[ALARM #{self.event_count}] [{event_type}] {event_label}")
-        print(f"  track_ids: {track_ids}")
-        print(f"  duration: {duration_s:.1f}s")
-        print(f"  details: {json.dumps(details, ensure_ascii=False)}")
+        print(f"[ALARM #{self.event_count}] [{event_type}] {event_label}  dur={duration_s:.1f}s")
+        print(f"  track: {track_ids}  {json.dumps(details, ensure_ascii=False)}")
+
+        # ── 轨迹回溯（最近 ~3 秒的 3 个采样点）──
+        for tid in track_ids:
+            hist = list(self.track_history.get(tid, []))
+            if len(hist) < 3:
+                continue
+            n = len(hist)
+            indices = [max(0, n - 60), max(0, n - 20), n - 1]  # ~3s ago, ~1s ago, now
+            pts = []
+            for idx in indices:
+                if idx < n:
+                    h = hist[idx]
+                    pts.append((h.get("x_m", 0), h.get("y_m", 0), h.get("speed_m_s", 0)))
+            if pts:
+                labels = ["~3s ago", "~1s ago", "trigger"]
+                parts = []
+                for (x, y, s), lab in zip(pts, labels):
+                    parts.append(f"{lab}:({x:+.2f},{y:.2f})m {abs(s):.2f}m/s")
+                print(f"  tid={tid}  {'  |  '.join(parts)}")
         print(f"{'='*50}")
 
         if self.on_anomaly:
